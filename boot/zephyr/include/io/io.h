@@ -115,6 +115,11 @@ static inline bool io_boot_skip_serial_recovery()
 }
 #endif
 
+/* Forward declaration for power rail functions */
+void io_init_power_rails(void);
+void power_rail_log_status(void);
+bool power_rail_pmic_is_off(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -506,6 +506,9 @@ int main(void)
     MCUBOOT_WATCHDOG_SETUP();
     MCUBOOT_WATCHDOG_FEED();
 
+    /* Capture bootloader start time (as early as possible after kernel init) */
+    uint32_t bootloader_start_ms = k_uptime_get_32();
+
 #if !defined(MCUBOOT_DIRECT_XIP)
     BOOT_LOG_INF("Starting bootloader");
 #else
@@ -525,6 +528,20 @@ int main(void)
 
     mcuboot_status_change(MCUBOOT_STATUS_STARTUP);
 
+    /* Initialize power rails from flash defaults (after system is initialized)
+     * NOTE: This is called AFTER mcuboot_status_change to ensure system is ready */
+    extern void io_init_power_rails(void);
+    
+    io_init_power_rails();
+
+    /* Log power rail initialization status (after console is ready) */
+    extern void power_rail_log_status(void);
+    power_rail_log_status();
+
+    /* Track if bootloader entry was requested via flash flag and timeout value */
+    bool bootloader_entry_requested = false;
+    int bootloader_timeout_seconds = -1;  /* -1 = not requested, 0-255 = timeout in seconds */
+
 #if defined(CONFIG_MCUBOOT_UUID_VID) || defined(CONFIG_MCUBOOT_UUID_CID)
     FIH_CALL(boot_uuid_init, fih_rc);
     if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
@@ -534,19 +551,37 @@ int main(void)
 #endif /* CONFIG_MCUBOOT_UUID_VID || CONFIG_MCUBOOT_UUID_CID */
 
 #ifdef CONFIG_BOOT_SERIAL_ENTRANCE_GPIO
-    BOOT_LOG_DBG("Checking GPIO for serial recovery");
+    BOOT_LOG_INF("Checking GPIO for serial recovery entrance");
     if (io_detect_pin() &&
             !io_boot_skip_serial_recovery()) {
+        BOOT_LOG_INF("⚠️ GPIO pin detected - entering DFU mode (skipping partition check)");
         boot_serial_enter();
+    } else {
+        BOOT_LOG_DBG("GPIO pin not detected - continuing boot");
     }
 #endif
 
 #ifdef CONFIG_BOOT_SERIAL_PIN_RESET
-    BOOT_LOG_DBG("Checking RESET pin for serial recovery");
+    BOOT_LOG_INF("Checking RESET pin for serial recovery entrance");
     if (io_detect_pin_reset()) {
+        BOOT_LOG_INF("⚠️ RESET pin detected - entering DFU mode (skipping partition check)");
         boot_serial_enter();
+    } else {
+        BOOT_LOG_DBG("RESET pin not detected - continuing boot");
     }
 #endif
+
+    /* Check flash storage partition for bootloader entry request from application */
+    /* This flag survives both warm and cold resets */
+    BOOT_LOG_INF("Checking flash storage for bootloader DFU request flag");
+    bootloader_timeout_seconds = io_detect_ram_bootloader_request();
+    if (bootloader_timeout_seconds >= 0) {
+        bootloader_entry_requested = true;
+        BOOT_LOG_INF("⚠️ Bootloader DFU request flag found (timeout=%d seconds) - will enter DFU wait mode after partition check", bootloader_timeout_seconds);
+        /* Don't call boot_serial_enter() here - we'll handle DFU wait mode later */
+    } else {
+        BOOT_LOG_DBG("No bootloader DFU request flag found - continuing normal boot");
+    }
 
 #if defined(CONFIG_BOOT_USB_DFU_GPIO)
     BOOT_LOG_DBG("Checking GPIO for USB DFU request");
@@ -587,48 +622,71 @@ int main(void)
     }
 #endif
 
-#ifdef CONFIG_BOOT_SERIAL_WAIT_FOR_DFU
-    /* Initialize the boot console, so we can already fill up our buffers while
-     * waiting for the boot image check to finish. This image check, can take
-     * some time, so it's better to reuse thistime to already receive the
-     * initial mcumgr command(s) into our buffers
-     */
-    rc = boot_console_init();
-    int timeout_in_ms = CONFIG_BOOT_SERIAL_WAIT_FOR_DFU_TIMEOUT;
-    uint32_t start = k_uptime_get_32();
-
-#ifdef CONFIG_MCUBOOT_INDICATION_LED
-    io_led_set(1);
-#endif
-#endif
-
+    BOOT_LOG_INF("=== Starting application partition validation ===");
+    BOOT_LOG_INF("Calling boot_go() to validate partitions...");
+    
     BOOT_HOOK_GO_CALL_FIH(boot_go_hook, FIH_BOOT_HOOK_REGULAR, fih_rc, &rsp);
     if (FIH_EQ(fih_rc, FIH_BOOT_HOOK_REGULAR)) {
+        BOOT_LOG_INF("boot_go_hook returned REGULAR - calling boot_go()");
         FIH_CALL(boot_go, fih_rc, &rsp);
+    } else {
+        BOOT_LOG_WRN("boot_go_hook returned non-REGULAR (rc=%d)", fih_rc);
     }
+    
     BOOT_LOG_DBG("Left boot_go with success == %d", FIH_EQ(fih_rc, FIH_SUCCESS) ? 1 : 0);
+    
+    /* Log boot_go result for debugging */
+    if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
+        BOOT_LOG_INF("✅ Application partition validated successfully");
+    } else {
+        BOOT_LOG_ERR("❌ Application partition validation failed (rc=%d)", fih_rc);
+    }
 
 #ifdef CONFIG_BOOT_SERIAL_BOOT_MODE
+    BOOT_LOG_INF("Checking boot mode retention");
     if (io_detect_boot_mode()) {
         /* Boot mode to stay in bootloader, clear status and enter serial
          * recovery mode
          */
-        BOOT_LOG_DBG("Staying in serial recovery");
+        BOOT_LOG_INF("⚠️ Boot mode retention detected - entering DFU mode (after partition check)");
         boot_serial_enter();
+    } else {
+        BOOT_LOG_DBG("Boot mode retention not set - continuing boot");
     }
 #endif
 
 #ifdef CONFIG_BOOT_SERIAL_WAIT_FOR_DFU
-    timeout_in_ms -= (k_uptime_get_32() - start);
-    if( timeout_in_ms <= 0 ) {
-        /* at least one check if time was expired */
-        timeout_in_ms = 1;
-    }
-    boot_serial_check_start(&boot_funcs,timeout_in_ms);
+    /* Only enter DFU wait mode if bootloader entry was explicitly requested via flash flag */
+    /* Do NOT enter DFU mode just because application validation failed - always try to boot */
+    if (bootloader_entry_requested) {
+        /* Bootloader entry was explicitly requested via flash flag - enter DFU mode */
+        /* Initialize console if not already done */
+        rc = boot_console_init();
+#ifdef CONFIG_MCUBOOT_INDICATION_LED
+        io_led_set(1);
+#endif
+        
+        /* Use timeout from flash flag (convert seconds to milliseconds) */
+        int timeout_in_ms;
+        if (bootloader_timeout_seconds == 0) {
+            /* 0 means indefinite wait - use a very large value */
+            timeout_in_ms = 0x7FFFFFFF;  /* INT_MAX equivalent for practical infinite wait */
+            BOOT_LOG_INF("Entering DFU wait mode - waiting indefinitely for firmware update commands (from flash flag)");
+        } else {
+            timeout_in_ms = bootloader_timeout_seconds * 1000;
+            BOOT_LOG_INF("Entering DFU wait mode - waiting %d seconds for firmware update commands (from flash flag)", bootloader_timeout_seconds);
+        }
+        
+        boot_serial_check_start(&boot_funcs, timeout_in_ms);
 
 #ifdef CONFIG_MCUBOOT_INDICATION_LED
-    io_led_set(0);
+        io_led_set(0);
 #endif
+    } else if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
+        /* Application validation failed, but no explicit DFU request */
+        /* Continue boot attempt regardless of PMIC state */
+        BOOT_LOG_WRN("Application validation failed, but continuing boot attempt");
+    }
 #endif
 
     if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
@@ -636,10 +694,12 @@ int main(void)
 
         mcuboot_status_change(MCUBOOT_STATUS_NO_BOOTABLE_IMAGE_FOUND);
 
+        /* Enter DFU mode when no bootable image found */
 #ifdef CONFIG_BOOT_SERIAL_NO_APPLICATION
         /* No bootable image and configuration set to remain in serial
          * recovery mode
          */
+        BOOT_LOG_INF("⚠️ No bootable image found - entering DFU mode (CONFIG_BOOT_SERIAL_NO_APPLICATION enabled)");
         boot_serial_enter();
 #elif defined(CONFIG_BOOT_USB_DFU_NO_APPLICATION)
         rc = usb_enable(NULL);
@@ -650,7 +710,6 @@ int main(void)
             wait_for_usb_dfu(K_FOREVER);
         }
 #endif
-
         FIH_PANIC;
     }
 
@@ -673,6 +732,16 @@ int main(void)
 #endif
 
     mcuboot_status_change(MCUBOOT_STATUS_BOOTABLE_IMAGE_FOUND);
+
+    /* Calculate and display bootloader execution time */
+    uint32_t bootloader_duration_ms = k_uptime_get_32() - bootloader_start_ms;
+    uint32_t bootloader_duration_s = bootloader_duration_ms / 1000;
+    uint32_t fractional_hundreds = (bootloader_duration_ms % 1000) / 100;
+    uint32_t fractional_tens = ((bootloader_duration_ms % 1000) / 10) % 10;
+    uint32_t fractional_ones = (bootloader_duration_ms % 1000) % 10;
+    BOOT_LOG_INF("Bootloader execution time: %u.%u%u%u seconds (%u ms)",
+                 bootloader_duration_s, fractional_hundreds, fractional_tens, fractional_ones,
+                 bootloader_duration_ms);
 
     ZEPHYR_BOOT_LOG_STOP();
     do_boot(&rsp);
