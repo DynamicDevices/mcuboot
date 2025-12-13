@@ -71,6 +71,7 @@ zephyr_library_sources(
   flash_map_extended.c
   os.c
   keys.c
+  lpuart0_early_init.c
   )
 
 if(DEFINED CONFIG_ENABLE_MGMT_PERUSER)
@@ -111,6 +112,7 @@ zephyr_library_sources(
   ${BOOT_DIR}/bootutil/src/bootutil_misc.c
   ${BOOT_DIR}/bootutil/src/bootutil_area.c
   ${BOOT_DIR}/bootutil/src/bootutil_loader.c
+  ${BOOT_DIR}/bootutil/src/bootutil_public.c
   ${BOOT_DIR}/bootutil/src/fault_injection_hardening.c
   )
 
@@ -133,7 +135,8 @@ if(CONFIG_MEASURED_BOOT OR CONFIG_BOOT_SHARE_DATA)
 endif()
 
 # library which might be common source code for MCUBoot and an application
-zephyr_link_libraries(MCUBOOT_BOOTUTIL)
+# Note: bootutil sources are compiled directly into the app library above,
+# so no separate library linking is needed
 
 if(CONFIG_BOOT_FIH_PROFILE_HIGH)
 zephyr_library_sources(
