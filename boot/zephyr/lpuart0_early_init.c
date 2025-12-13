@@ -57,3 +57,4 @@ static int lpuart0_post_init(const struct device *dev)
 SYS_INIT(lpuart0_post_init, POST_KERNEL, 50);
 
 #endif /* CONFIG_UART_CONSOLE */
+

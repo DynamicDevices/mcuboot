@@ -138,9 +138,8 @@ static void
 boot_uart_fifo_callback(const struct device *dev, void *user_data)
 {
 	static struct line_input *cmd;
-	uint8_t fifo_buf[32];  /* Read up to 32 bytes at once from hardware FIFO */
+	uint8_t byte;
 	int rx;
-	int i;
 
 	uart_irq_update(uart_dev);
 
@@ -149,38 +148,32 @@ boot_uart_fifo_callback(const struct device *dev, void *user_data)
 	}
 
 	while (true) {
-		/* Read multiple bytes from hardware FIFO in one call */
-		rx = uart_fifo_read(uart_dev, fifo_buf, sizeof(fifo_buf));
-		if (rx <= 0) {
+		rx = uart_fifo_read(uart_dev, &byte, 1);
+		if (rx != 1) {
 			break;
 		}
 
-		/* Process each byte from the buffer */
-		for (i = 0; i < rx; i++) {
-			uint8_t byte = fifo_buf[i];
+		if (!cmd) {
+			sys_snode_t *node;
 
-			if (!cmd) {
-				sys_snode_t *node;
-
-				node = sys_slist_get(&avail_queue);
-				if (!node) {
-					BOOT_LOG_ERR("Not enough memory to store"
-						     " incoming data!");
-					return;
-				}
-				cmd = CONTAINER_OF(node, struct line_input, node);
+			node = sys_slist_get(&avail_queue);
+			if (!node) {
+				BOOT_LOG_ERR("Not enough memory to store"
+					     " incoming data!");
+				return;
 			}
+			cmd = CONTAINER_OF(node, struct line_input, node);
+		}
 
-			if (cur < CONFIG_BOOT_MAX_LINE_INPUT_LEN) {
-				cmd->line[cur++] = byte;
-			}
+		if (cur < CONFIG_BOOT_MAX_LINE_INPUT_LEN) {
+			cmd->line[cur++] = byte;
+		}
 
-			if (byte ==  '\n') {
-				cmd->len = cur;
-				sys_slist_append(&lines_queue, &cmd->node);
-				cur = 0;
-				cmd = NULL;
-			}
+		if (byte ==  '\n') {
+			cmd->len = cur;
+			sys_slist_append(&lines_queue, &cmd->node);
+			cur = 0;
+			cmd = NULL;
 		}
 	}
 }

@@ -19,7 +19,6 @@
  */
 
 #include <stddef.h>
-#include <inttypes.h>
 
 #include "bootutil/bootutil.h"
 #include "bootutil/bootutil_log.h"
@@ -114,8 +113,7 @@ bootutil_tlv_iter_next(struct image_tlv_iter *it, uint32_t *off, uint16_t *len,
         return -1;
     }
 
-    BOOT_LOG_DBG("bootutil_tlv_iter_next: searching for %d (%d is any) "
-                 "starting at %" PRIu32 " ending at %" PRIu32,
+    BOOT_LOG_DBG("bootutil_tlv_iter_next: searching for %d (%d is any) starting at %d ending at %d",
                  it->type, IMAGE_TLV_ANY, it->tlv_off, it->tlv_end);
 
     while (it->tlv_off < it->tlv_end) {
@@ -125,8 +123,7 @@ bootutil_tlv_iter_next(struct image_tlv_iter *it, uint32_t *off, uint16_t *len,
 
         rc = LOAD_IMAGE_DATA(it->hdr, it->fap, it->tlv_off, &tlv, sizeof tlv);
         if (rc) {
-            BOOT_LOG_DBG("bootutil_tlv_iter_next: load failed with %d for %p "
-                         "%" PRIu32,
+            BOOT_LOG_DBG("bootutil_tlv_iter_next: load failed with %d for %p %d",
                          rc, it->fap, it->tlv_off);
             return -1;
         }
@@ -144,8 +141,7 @@ bootutil_tlv_iter_next(struct image_tlv_iter *it, uint32_t *off, uint16_t *len,
             *off = it->tlv_off + sizeof(tlv);
             *len = tlv.it_len;
             it->tlv_off += sizeof(tlv) + tlv.it_len;
-            BOOT_LOG_DBG("bootutil_tlv_iter_next: TLV %d found at %" PRIu32
-                         " (size %d)",
+            BOOT_LOG_DBG("bootutil_tlv_iter_next: TLV %d found at %d (size %d)",
                          tlv.it_type, *off, *len);
             return 0;
         }

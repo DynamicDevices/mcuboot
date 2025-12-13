@@ -110,8 +110,6 @@ zephyr_library_sources(
   ${BOOT_DIR}/bootutil/src/image_ecdsa.c
   ${BOOT_DIR}/bootutil/src/image_ed25519.c
   ${BOOT_DIR}/bootutil/src/bootutil_misc.c
-  ${BOOT_DIR}/bootutil/src/bootutil_area.c
-  ${BOOT_DIR}/bootutil/src/bootutil_loader.c
   ${BOOT_DIR}/bootutil/src/bootutil_public.c
   ${BOOT_DIR}/bootutil/src/fault_injection_hardening.c
   )
@@ -135,8 +133,11 @@ if(CONFIG_MEASURED_BOOT OR CONFIG_BOOT_SHARE_DATA)
 endif()
 
 # library which might be common source code for MCUBoot and an application
-# Note: bootutil sources are compiled directly into the app library above,
-# so no separate library linking is needed
+# Note: MCUBOOT_BOOTUTIL interface library is not needed for bootloader builds
+# as all required bootutil sources are compiled directly into the main application
+if(NOT DEFINED CONFIG_MCUBOOT OR NOT CONFIG_MCUBOOT)
+  zephyr_link_libraries(MCUBOOT_BOOTUTIL)
+endif()
 
 if(CONFIG_BOOT_FIH_PROFILE_HIGH)
 zephyr_library_sources(
@@ -555,7 +556,7 @@ if((CONFIG_BOOT_SWAP_USING_SCRATCH OR CONFIG_BOOT_SWAP_USING_MOVE OR CONFIG_BOOT
   zephyr_library_sources(flash_check.c)
 endif()
 
-if(CONFIG_MULTIPLE_EXECUTABLE_RAM_REGIONS_DEFAULT_FILE)
+if(CONFIG_BOOT_RAM_LOAD)
   zephyr_library_sources(ram_load.c)
 endif()
 

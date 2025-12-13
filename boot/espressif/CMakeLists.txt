@@ -241,8 +241,6 @@ set(bootutil_srcs
     ${BOOTUTIL_DIR}/src/bootutil_img_hash.c
     ${BOOTUTIL_DIR}/src/bootutil_img_security_cnt.c
     ${BOOTUTIL_DIR}/src/bootutil_misc.c
-    ${BOOTUTIL_DIR}/src/bootutil_area.c
-    ${BOOTUTIL_DIR}/src/bootutil_loader.c
     ${BOOTUTIL_DIR}/src/bootutil_public.c
     ${BOOTUTIL_DIR}/src/caps.c
     ${BOOTUTIL_DIR}/src/encrypted.c
@@ -349,7 +347,7 @@ if(CONFIG_ESP_MCUBOOT_SERIAL)
         ${ZCBOR_DIR}/include
         )
     list(APPEND port_srcs
-        ${CMAKE_CURRENT_LIST_DIR}/port/serial_adapter.c
+        ${CMAKE_CURRENT_LIST_DIR}/port/${MCUBOOT_TARGET}/serial_adapter.c
         ${MBEDTLS_DIR}/library/base64.c
         )
     list(APPEND CRYPTO_INC

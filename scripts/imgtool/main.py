@@ -23,6 +23,7 @@ import lzma
 import re
 import struct
 import sys
+from collections import namedtuple
 
 import click
 
@@ -44,6 +45,14 @@ MIN_PYTHON_VERSION = (3, 6)
 if sys.version_info < MIN_PYTHON_VERSION:
     sys.exit("Python {}.{} or newer is required by imgtool.".format(*MIN_PYTHON_VERSION))
 
+SlottedSemiSemVersion = namedtuple('SemiSemVersion', ['major', 'minor', 'revision',
+                                               'build', 'slot'])
+
+DEPENDENCY_SLOT_VALUES = {
+    'active': 0x00,
+    'primary': 0x01,
+    'secondary': 0x02
+}
 
 def gen_rsa2048(keyfile, passwd):
     keys.RSA.generate().export_private(path=keyfile, passwd=passwd)
@@ -147,7 +156,8 @@ def keygen(type, key, password):
 @click.command(help='Dump public key from keypair')
 def getpub(key, encoding, lang, output):
     if encoding and lang:
-        raise click.UsageError('Please use only one of `--encoding/-e` or `--lang/-l`')
+        raise click.UsageError('Please use only one of `--encoding/-e` '
+                               'or `--lang/-l`')
     elif not encoding and not lang:
         # Preserve old behavior defaulting to `c`. If `lang` is removed,
         # `default=valid_encodings[0]` should be added to `-e` param.
@@ -215,8 +225,9 @@ def getpriv(key, minimal, format):
         print("Invalid passphrase")
     try:
         key.emit_private(minimal, format)
-    except (RSAUsageError, ECDSAUsageError, Ed25519UsageError, X25519UsageError) as e:
-        raise click.UsageError(e) from e
+    except (RSAUsageError, ECDSAUsageError, Ed25519UsageError,
+            X25519UsageError) as e:
+        raise click.UsageError(e)
 
 
 @click.argument('imgfile')
@@ -266,7 +277,7 @@ def validate_version(ctx, param, value):
         decode_version(value)
         return value
     except ValueError as e:
-        raise click.BadParameter(f"{e}") from None
+        raise click.BadParameter(f"{e}")
 
 
 def validate_security_counter(ctx, param, value):
@@ -280,7 +291,7 @@ def validate_security_counter(ctx, param, value):
                 raise click.BadParameter(
                     f"{value} is not a valid integer. Please use code literals "
                     "prefixed with 0b/0B, 0o/0O, or 0x/0X as necessary."
-                ) from None
+                    )
 
 
 def validate_header_size(ctx, param, value):
@@ -298,16 +309,33 @@ def get_dependencies(ctx, param, value):
         if len(images) == 0:
             raise click.BadParameter(
                 f"Image dependency format is invalid: {value}")
-        raw_versions = re.findall(r",\s*([0-9.+]+)\)", value)
+        raw_versions = re.findall(r",\s*((active|primary|secondary)\s*,)?\s*([0-9.+]+)\)", value)
         if len(images) != len(raw_versions):
             raise click.BadParameter(
                 f'''There's a mismatch between the number of dependency images
                 and versions in: {value}''')
         for raw_version in raw_versions:
             try:
-                versions.append(decode_version(raw_version))
+                decoded_version = decode_version(raw_version[2])
+                if len(raw_version[1]) > 0:
+                    slotted_version = SlottedSemiSemVersion(
+                        decoded_version.major,
+                        decoded_version.minor,
+                        decoded_version.revision,
+                        decoded_version.build,
+                        DEPENDENCY_SLOT_VALUES[raw_version[1]]
+                    )
+                else:
+                    slotted_version = SlottedSemiSemVersion(
+                        decoded_version.major,
+                        decoded_version.minor,
+                        decoded_version.revision,
+                        decoded_version.build,
+                        0
+                    )
             except ValueError as e:
-                raise click.BadParameter(f"{e}") from None
+                raise click.BadParameter(f"{e}")
+            versions.append(slotted_version)
         dependencies = dict()
         dependencies[image.DEP_IMAGES_KEY] = images
         dependencies[image.DEP_VERSIONS_KEY] = versions
@@ -404,7 +432,7 @@ class BasedIntParamType(click.ParamType):
                    '(for mcuboot <1.5)')
 @click.option('-d', '--dependencies', callback=get_dependencies,
               required=False, help='''Add dependence on another image, format:
-              "(<image_ID>,<image_version>), ... "''')
+              "(<image_ID>,[<slot:active|primary|secondary>,]<image_version>), ... "''')
 @click.option('-s', '--security-counter', callback=validate_security_counter,
               help='Specify the value of security counter. Use the `auto` '
               'keyword to automatically generate it from the image version.')

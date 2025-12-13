@@ -27,7 +27,6 @@
  */
 
 #include <stdint.h>
-#include <inttypes.h>
 #include <flash_map_backend/flash_map_backend.h>
 
 #include "bootutil/crypto/sha.h"
@@ -66,6 +65,7 @@ bootutil_img_hash(struct boot_loader_state *state,
     int fa_ret;
 #endif
 #if defined(MCUBOOT_ENC_IMAGES)
+    struct enc_key_data *enc_state;
     int image_index;
 #endif
 #if defined(MCUBOOT_SWAP_USING_OFFSET)
@@ -91,14 +91,16 @@ bootutil_img_hash(struct boot_loader_state *state,
 
 #ifdef MCUBOOT_ENC_IMAGES
     if (state == NULL) {
+        enc_state = NULL;
         image_index = 0;
     } else {
+        enc_state = BOOT_CURR_ENC(state);
         image_index = BOOT_CURR_IMG(state);
     }
 
     /* Encrypted images only exist in the secondary slot */
     if (MUST_DECRYPT(fap, image_index, hdr) &&
-            !boot_enc_valid(BOOT_CURR_ENC_SLOT(state, BOOT_SLOT_SECONDARY))) {
+            !boot_enc_valid(enc_state, 1)) {
         BOOT_LOG_DBG("bootutil_img_hash: error encrypted image found in primary slot");
         return -1;
     }
@@ -168,8 +170,7 @@ bootutil_img_hash(struct boot_loader_state *state,
 #endif
         if (rc) {
             bootutil_sha_drop(&sha_ctx);
-            BOOT_LOG_DBG("bootutil_img_validate Error %d reading data chunk "
-                         "%p %" PRIu32 " %" PRIu32,
+            BOOT_LOG_DBG("bootutil_img_validate Error %d reading data chunk %p %u %u",
                          rc, fap, off, blk_sz);
             return rc;
         }
@@ -181,7 +182,7 @@ bootutil_img_hash(struct boot_loader_state *state,
 
             if (off >= hdr_size && off < tlv_off) {
                 blk_off = (off - hdr_size) & 0xf;
-                boot_enc_decrypt(BOOT_CURR_ENC_SLOT(state, slot), off - hdr_size,
+                boot_enc_decrypt(enc_state, slot, off - hdr_size,
                                  blk_sz, blk_off, tmp_buf);
             }
         }

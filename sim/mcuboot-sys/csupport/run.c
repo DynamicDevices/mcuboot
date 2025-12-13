@@ -264,7 +264,7 @@ int invoke_boot_go(struct sim_context *ctx, struct area_desc *adesc,
     sim_set_context(ctx);
 
     if (setjmp(ctx->boot_jmpbuf) == 0) {
-        boot_state_init(state);
+        boot_state_clear(state);
 
 #if BOOT_IMAGE_NUMBER > 1
         if (image_id >= 0) {
@@ -276,14 +276,12 @@ int invoke_boot_go(struct sim_context *ctx, struct area_desc *adesc,
 #endif /* BOOT_IMAGE_NUMBER > 1 */
 
         res = context_boot_go(state, rsp);
-        boot_state_clear(state);
         sim_reset_flash_areas();
         sim_reset_context();
         free(state);
         /* printf("boot_go off: %d (0x%08x)\n", res, rsp->br_image_off); */
         return res;
     } else {
-        boot_state_clear(state);
         sim_reset_flash_areas();
         sim_reset_context();
         free(state);
@@ -310,7 +308,7 @@ int invoke_boot_load_image_from_flash_to_sram(struct sim_context *ctx, struct ar
 
     sim_set_flash_areas(adesc);
     sim_set_context(ctx);
-    boot_state_init(state);
+    boot_state_clear(state);
 
     res = flash_area_open(FLASH_AREA_IMAGE_PRIMARY(0), &fa_p);
     if (res != 0) {
@@ -337,7 +335,6 @@ int invoke_boot_load_image_from_flash_to_sram(struct sim_context *ctx, struct ar
     }
 
     flash_area_close(fa_p);
-    boot_state_clear(state);
     sim_reset_flash_areas();
     sim_reset_context();
     free(state);

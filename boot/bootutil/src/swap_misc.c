@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Copyright (c) 2019 JUUL Labs
- * Copyright (c) 2025 Nordic Semiconductor ASA
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -137,15 +136,12 @@ swap_status_init(const struct boot_loader_state *state,
     rc = boot_write_swap_size(fap, bs->swap_size);
     assert(rc == 0);
 
-#ifdef MCUBOOT_SWAP_USING_OFFSET
-    rc = boot_write_unprotected_tlv_sizes(fap,
-                                   BOOT_IMG_UNPROTECTED_TLV_SIZE(state, BOOT_SLOT_PRIMARY),
-                                   BOOT_IMG_UNPROTECTED_TLV_SIZE(state, BOOT_SLOT_SECONDARY));
-    assert(rc == 0);
-#endif
-
 #ifdef MCUBOOT_ENC_IMAGES
-    rc = boot_write_enc_keys(fap, bs);
+    rc = boot_write_enc_key(fap, 0, bs);
+    assert(rc == 0);
+
+    rc = boot_write_enc_key(fap, 1, bs);
+    assert(rc == 0);
 #endif
 
     rc = boot_write_magic(fap);
@@ -250,5 +246,6 @@ out:
     flash_area_close(fap);
     return rc;
 }
+
 
 #endif /* defined(MCUBOOT_SWAP_USING_SCRATCH) || defined(MCUBOOT_SWAP_USING_MOVE) || defined(MCUBOOT_SWAP_USING_OFFSET) */

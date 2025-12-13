@@ -103,19 +103,14 @@ TLV_PROT_INFO_MAGIC = 0x6908
 TLV_VENDOR_RES_MIN = 0x00a0
 TLV_VENDOR_RES_MAX = 0xfffe
 
-STRUCT_ENDIAN_DICT = {'little': '<', 'big': '>'}
+STRUCT_ENDIAN_DICT = {
+        'little': '<',
+        'big':    '>'
+}
 
-VerifyResult = Enum(
-    'VerifyResult',
-    [
-        'OK',
-        'INVALID_MAGIC',
-        'INVALID_TLV_INFO_MAGIC',
-        'INVALID_HASH',
-        'INVALID_SIGNATURE',
-        'KEY_MISMATCH',
-    ],
-)
+VerifyResult = Enum('VerifyResult',
+                    ['OK', 'INVALID_MAGIC', 'INVALID_TLV_INFO_MAGIC', 'INVALID_HASH', 'INVALID_SIGNATURE',
+                     'KEY_MISMATCH'])
 
 
 def align_up(num, align):
@@ -139,11 +134,8 @@ class TLV:
         e = STRUCT_ENDIAN_DICT[self.endian]
         if isinstance(kind, int):
             if not TLV_VENDOR_RES_MIN <= kind <= TLV_VENDOR_RES_MAX:
-                msg = (
-                    f"Invalid custom TLV type value '0x{kind:04x}', allowed "
-                    f"value should be between 0x{TLV_VENDOR_RES_MIN:04x} and "
-                    "0x{TLV_VENDOR_RES_MAX:04x}"
-                )
+                msg = f"Invalid custom TLV type value '0x{kind:04x}', allowed " \
+                      f"value should be between 0x{TLV_VENDOR_RES_MIN:04x} and 0x{TLV_VENDOR_RES_MAX:04x}"
                 raise click.UsageError(msg)
             buf = struct.pack(e + 'HH', kind, len(payload))
         else:
@@ -224,8 +216,8 @@ def key_and_user_sha_to_alg_and_tlv(key, user_sha, is_pure = False):
         allowed = allowed_key_ssh[type(key)]
 
     except KeyError:
-        raise click.UsageError(
-            f"Could not find allowed hash algorithms for {type(key)}") from None
+        raise click.UsageError(f"Colud not find allowed hash algorithms for {type(key)}"
+                               )
 
     # Pure enforces auto, and user selection is ignored
     if user_sha == 'auto' or is_pure:
@@ -234,10 +226,8 @@ def key_and_user_sha_to_alg_and_tlv(key, user_sha, is_pure = False):
     if user_sha in allowed:
         return USER_SHA_TO_ALG_AND_TLV[user_sha]
 
-    raise click.UsageError(
-        f"Key {key.sig_type()} can not be used with --sha {user_sha}; "
-        "allowed sha are one of {allowed}"
-    ) from None
+    raise click.UsageError(f"Key {key.sig_type()} can not be used with --sha {user_sha}; allowed sha are one of {allowed}"
+                           )
 
 
 def get_digest(tlv_type, hash_region):
@@ -255,11 +245,10 @@ def tlv_matches_key_type(tlv_type, key):
         # return True, on exception we return False.
         _, _ = key_and_user_sha_to_alg_and_tlv(key, tlv_sha_to_sha(tlv_type))
         return True
-    except Exception:
+    except:
         pass
 
     return False
-
 
 def parse_uuid(namespace, value):
     # Check if UUID is in the RAW format (12345678-1234-5678-1234-567812345678)
@@ -382,7 +371,7 @@ class Image:
                     self.infile_data = f.read()
                     self.payload = copy.copy(self.infile_data)
         except FileNotFoundError:
-            raise click.UsageError("Input file not found") from None
+            raise click.UsageError("Input file not found")
 
         # Add the image header if needed.
         if self.pad_header and self.header_size > 0:
@@ -455,13 +444,10 @@ class Image:
                 f.write(self.payload)
 
     def check_header(self):
-        if (
-            self.header_size > 0 and not self.pad_header
-            and any(v != 0 for v in self.payload[0: self.header_size])
-        ):
-            raise click.UsageError(
-                "Header padding was not requested and image does not start with zeros"
-            )
+        if self.header_size > 0 and not self.pad_header:
+            if any(v != 0 for v in self.payload[0:self.header_size]):
+                raise click.UsageError("Header padding was not requested and "
+                                       "image does not start with zeros")
 
     def check_trailer(self):
         if self.slot_size > 0:
@@ -644,8 +630,9 @@ class Image:
             if dependencies is not None:
                 for i in range(dependencies_num):
                     payload = struct.pack(
-                        e + 'B3x' + 'BBHI',
+                        e + 'BB2x' + 'BBHI',
                         int(dependencies[DEP_IMAGES_KEY][i]),
+                        dependencies[DEP_VERSIONS_KEY][i].slot,
                         dependencies[DEP_VERSIONS_KEY][i].major,
                         dependencies[DEP_VERSIONS_KEY][i].minor,
                         dependencies[DEP_VERSIONS_KEY][i].revision,
@@ -733,9 +720,7 @@ class Image:
                 tlv.add(pub_key.sig_tlv(), fixed_sig['value'])
                 self.signature = fixed_sig['value']
             else:
-                raise click.UsageError(
-                    "Can not sign using key and provide fixed-signature at the same time"
-                )
+                raise click.UsageError("Can not sign using key and provide fixed-signature at the same time")
 
         # At this point the image was hashed + signed, we can remove the
         # protected TLVs from the payload (will be re-added later)
@@ -754,8 +739,7 @@ class Image:
                     hmac_sha_alg = hashes.SHA256()
                 elif hmac_sha == '512':
                     if not isinstance(enckey, x25519.X25519Public):
-                        raise click.UsageError(
-                            "Currently only ECIES-X25519 supports HMAC-SHA512")
+                        raise click.UsageError("Currently only ECIES-X25519 supports HMAC-SHA512")
                     hmac_sha_alg = hashes.SHA512()
                 else:
                     raise click.UsageError("Unsupported HMAC-SHA")
@@ -903,7 +887,7 @@ class Image:
                 with open(imgfile, 'rb') as f:
                     b = f.read()
         except FileNotFoundError:
-            raise click.UsageError(f"Image file {imgfile} not found") from None
+            raise click.UsageError(f"Image file {imgfile} not found")
 
         magic, _, header_size, _, img_size = struct.unpack('IIHHI', b[:16])
         version = struct.unpack('BBHI', b[20:28])
